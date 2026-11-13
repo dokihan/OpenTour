@@ -10,7 +10,7 @@ The only game data in the repo are official server responses: `Setting.bin` (sea
 
 - Mario Kart Tour 4.0.0: the Android APK + `arm64-v8a` split (or the `.xapk`). An iOS IPA works for the client, but the keys come from the APK.
 - Python 3.11
-- A Linux server with nginx
+- A Linux server with nginx and a domain with a Let's Encrypt certificate
 
 ```
 pip install -r requirements.txt

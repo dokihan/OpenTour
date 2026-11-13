@@ -2,7 +2,7 @@
 
 `nginx.conf` is an example, replace `example.com` with your domain.
 
-Certificates:
+The game only accepts a trusted certificate (a self-signed one gives error 806-2728), so use a real domain and Let's Encrypt:
 
 ```
 sudo certbot certonly --nginx -d booster.example.com -d realtime.example.com

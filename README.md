@@ -3,8 +3,8 @@
 Private server for [Mario Kart Tour](https://en.wikipedia.org/wiki/Mario_Kart_Tour), frozen on the last official season.
 The official service ended on September 30, 2026.
 
-No game files and no keys are included, you need your own copy of the game.
-The only game file in the repo is `Setting.bin` (season end moved to 2089).
+No game assets and no keys are included, you need your own copy of the game.
+The only game data in the repo are official server responses: `Setting.bin` (season end moved to 2089) and the pipe lotteries.
 
 ## Requirements
 

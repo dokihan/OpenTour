@@ -6,9 +6,9 @@ import re
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(HERE.parent / "tools"))
-POOL = HERE / "data" / "ghost_pool"
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools"))
+POOL = REPO / "server" / "data" / "ghost_pool"
 
 def _personal_mii(mii: dict) -> bool:
     if not isinstance(mii, dict) or not mii.get("BinaryData"):

@@ -11,6 +11,16 @@
 /server/booster/game/masters_generated/
 data/
 
+# Generated from your downloaded game data (tools/rotate.py)
+/server/booster/game/config/shop_offers.json
+/server/booster/game/config/festivals.json
+/server/booster/game/config/festival_teams.json
+/server/booster/game/config/festival_schedule.json
+/server/booster/game/config/tour_gifts.json
+/server/booster/game/config/weekly_rankings.json
+/server/booster/support/news/shop_banners.json
+*.json.new
+
 # Built client artifacts
 /build/
 *.apk

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO / "tools"), str(REPO / "server"), str(REPO / "server" / "tools")]
 
 import msgpack_preserve as MP
+from libs import rotation as R
 
 S_DURATIONS, S_JUGEM = 22, 28
 UTC = dt.timezone.utc
@@ -59,14 +62,36 @@ def rows(now: int) -> tuple[list[list], list[list]]:
     skins = sorted(_current_or_next(jugem, now).items(), key=lambda kv: kv[1])
     return ([[name, o, c] for name, (o, c) in deco], [[o, c, name] for name, (o, c) in skins])
 
+def live(now: int) -> list[str]:
+    deco, skins = rows(now)
+    return [r[0] for r in deco if r[1] <= now <= r[2]] + [r[2] for r in skins if r[0] <= now <= r[1]]
+
 def apply(season, now: int) -> bool:
     deco, skins = rows(now)
     changed = False
     for index, wanted in ((S_DURATIONS, deco), (S_JUGEM, skins)):
         node = season[index]
         if node.kind != "array":
-            raise ValueError(f"Season[{index}] n'est pas une liste")
+            raise ValueError(f"Season[{index}] is not a list")
         if node.value != wanted:
             node.replace_items([MP.make(row) for row in wanted])
             changed = True
     return changed
+
+def describe(now: int) -> str:
+    return f"seasonal: {', '.join(live(now)) or 'nothing live'}"
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Seasonal decorations and Lakitu skins (Season[22], Season[28])")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("plan", help="windows in effect on a game day (read only)")
+    p.add_argument("--date", type=R.date_arg, default=None, help="YYYY-MM-DD (default: the game day in progress)")
+    args = ap.parse_args(argv)
+    now = R.instant(args.date or R.today())
+    deco, skins = rows(now)
+    for name, opened, closed in deco + [[n, o, c] for o, c, n in skins]:
+        print(f"{name:<20} {R.stamp(opened)} -> {R.stamp(closed)} UTC{'  live' if opened <= now <= closed else ''}")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

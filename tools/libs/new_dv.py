@@ -6,12 +6,13 @@ import os
 import re
 import shutil
 import sys
+from types import SimpleNamespace
 
 from libs.paths import REPO_ROOT, RESOURCES_DIR
 
 for _p in (REPO_ROOT / "server", REPO_ROOT / "server" / "tools"):
     if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+        sys.path.append(str(_p))
 
 import msgpack
 
@@ -31,7 +32,7 @@ FILE_HASH_SEED = 0x1072D620
 M_DATA_VERSION, DV_ID, DV_DV = 0, 0, 6
 CAT_PACKS, CAT_MAX_FILE_SIZE, CAT_VERSION = 1, 7, 8
 PACK_ID, PACK_SIZE, PACK_HASH, PACK_FILES, PACK_BEGIN, PACK_END, PACK_SOURCE_HASH = 0, 1, 2, 4, 5, 6, 8
-FILE_BODY, FILE_ID, FILE_SIZE, FILE_HASH, FILE_SOURCE_HASH = 1, 0, 1, 2, 3
+FILE_BODY, FILE_ID, FILE_SIZE, FILE_HASH, FILE_SOURCE_HASH, FILE_CONTENTS = 1, 0, 1, 2, 3, 6
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 def new_data_version(tag: str, source_dv: str) -> str:
@@ -131,6 +132,46 @@ def password_for(block, cipher, file_id):
             continue
     raise ValueError(f"{file_id}: the words of Setting do not decrypt it")
 
+def find_master(catalog, block):
+    file_id = master_file_id(block)
+    found = [p for p in catalog[CAT_PACKS] if any(f[FILE_BODY][FILE_ID] == file_id for f in p[PACK_FILES])]
+    if len(found) != 1 or len(found[0][PACK_FILES]) != 1:
+        raise ValueError(f"{file_id}: expected alone in one pack, found in {len(found)}")
+    return found[0], file_id
+
+def catalog_paths(catalog):
+    return {c[0] for p in catalog[CAT_PACKS] for f in p[PACK_FILES]
+            if len(f[FILE_BODY]) > FILE_CONTENTS for c in f[FILE_BODY][FILE_CONTENTS] or []}
+
+def members(source, prefix, suffixes):
+    for pack in source.catalog[CAT_PACKS]:
+        if not pack[PACK_ID].startswith(prefix):
+            continue
+        hits = [i for i, f in enumerate(pack[PACK_FILES]) if f[FILE_BODY][FILE_ID].endswith(suffixes)]
+        if hits:
+            blob = source.read(pack)
+            for i in hits:
+                yield pack[PACK_ID], pack[PACK_FILES][i][FILE_BODY][FILE_ID], blob[pack[PACK_BEGIN][i]:pack[PACK_END][i]]
+
+def load_source(cdn=CDN_DIR, setting=SHIPPED_SETTING):
+    if opentour_keys.using_sample():
+        raise SystemExit("keys file is the committed sample; provide a real keys/keys.json")
+    blob = setting.read_bytes()
+    block = parse_setting(blob)
+    src = next((platform_dir(cdn, block.data_version, p) for p in PLATFORMS
+                if (platform_dir(cdn, block.data_version, p) / "catalog").is_file()), None)
+    if src is None:
+        raise SystemExit(f"no downloaded catalog for dv {block.data_version} under {cdn}; run tools/fetch_resources.py")
+    keys = opentour_keys.nabe()
+    catalog = decode_catalog_raw((src / "catalog").read_bytes(), keys["offline_password"], keys["server_catalog_salt"])
+    master, file_id = find_master(catalog, block)
+    cipher = (src / pack_filename(master)).read_bytes()
+    plain = decrypt_master(cipher, password_for(block, cipher, file_id), file_id)
+    roundtrip(plain, "MasterData")
+    return SimpleNamespace(block=block, setting=blob, catalog=catalog, plain=plain, dir=src,
+                           tree=msgpack.unpackb(plain, raw=False, strict_map_key=False),
+                           read=lambda pack: (src / pack_filename(pack)).read_bytes())
+
 def build_platform(src, block, dv, revision, edit_master, edit_packs, edited):
     keys = opentour_keys.nabe()
     secret, salt = keys["offline_password"], keys["server_catalog_salt"]
@@ -144,11 +185,7 @@ def build_platform(src, block, dv, revision, edit_master, edit_packs, edited):
         return blobs[name]
 
     replacements = edit_packs(catalog, read) if edit_packs else {}
-    file_id = master_file_id(block)
-    found = [p for p in catalog[CAT_PACKS] if any(f[FILE_BODY][FILE_ID] == file_id for f in p[PACK_FILES])]
-    if len(found) != 1 or len(found[0][PACK_FILES]) != 1:
-        raise ValueError(f"{file_id}: expected alone in one pack, found in {len(found)}")
-    master = found[0]
+    master, file_id = find_master(catalog, block)
     entry = master[PACK_FILES][0][FILE_BODY]
     cipher = (src / pack_filename(master)).read_bytes()
     if len(cipher) != entry[FILE_SIZE] or xxh32(cipher, FILE_HASH_SEED) != entry[FILE_HASH]:

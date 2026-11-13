@@ -23,8 +23,8 @@ jobs:
           import importlib, pkgutil, sys, traceback
           import booster
           names = [m.name for m in pkgutil.walk_packages(booster.__path__, "booster.")]
-          names += ["fetch_resources", "opentour_keys",
-                    "libs.new_dv", "season_title", "sakasho.codec", "natcheck"]
+          names += [m.name for m in pkgutil.iter_modules(["tools"]) if not m.ispkg]
+          names += ["libs.new_dv", "libs.rotation", "sakasho.codec", "natcheck"]
           names += ["tools." + m.name for m in pkgutil.iter_modules(["server/tools"])]
           bad = 0
           for name in names:
@@ -40,11 +40,14 @@ jobs:
       - name: tools help
         if: success() || failure()
         run: |
-          for t in tools/fetch_resources.py tools/season_title.py server/tools/*.py; do
+          for t in tools/*.py server/tools/*.py; do
             case "$t" in */__init__.py) continue;; esac
             python "$t" --help > /dev/null || { echo "FAIL $t"; exit 1; }
           done
-          python server/tools/setting_bin.py show
+          for t in shop_rotation cup_challenges pvp_rules seasonal tour_gifts weekly_rankings; do
+            python tools/$t.py plan --help > /dev/null || { echo "FAIL $t plan"; exit 1; }
+          done
+          python tools/setting_bin.py show
       - name: boot
         if: success() || failure()
         run: |

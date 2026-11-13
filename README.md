@@ -38,12 +38,25 @@ cp .env.example .env
 
 nginx config: see `deploy/`.
 
+## Rotations
+
+```
+python tools/rotate.py
+```
+
+Publishes the day's shop, cup challenges, 100/150cc, Team Rally, Ranked Cup and seasonal decorations as a new data version.
+Run it every day at 06:00 UTC, restart the server after the first run:
+
+```
+1 6 * * * cd /path/to/OpenTour && python tools/rotate.py >> rotate.log 2>&1
+```
+
 ## Tools
 
-- `server/tools/setting_bin.py`: show or change the season dates.
-- `server/tools/shop_rotation.py`: shop offers.
-- `server/tools/seasonal.py`: seasonal decorations.
-- `server/tools/anonymize_ghost_pool.py`: anonymize a ghost pool.
+- `tools/setting_bin.py`: show or change the season dates.
+- `tools/shop_rotation.py`, `cup_challenges.py`, `pvp_rules.py`, `festival_schedule.py`, `seasonal.py`, `weekly_rankings.py`: `plan` shows what `rotate.py` will do.
+- `tools/tour_gifts.py`: longer Tour Gifts ladder (`rotate.py --gifts`).
+- `tools/anonymize_ghost_pool.py`: anonymize a ghost pool.
 
 The ghost pool is too big for git, it is available in the releases. Put it in `server/data/ghost_pool/`.
 

@@ -35,6 +35,16 @@ python tools/season_title.py
 5. Give your players a client built for your server. Each player enters a username on first launch.
 6. Optional: run `rotate.py` every day (see Rotations) and put the ghost pool from the releases in `server/data/ghost_pool/`.
 
+## Keys
+
+`keys/keys.json` holds the game's own keys (see `keys/keys.sample.json` for the shape): the Sakasho
+cipher keys, the item-payload AES key/IV, and the Nabe asset keys (catalog salts, zstd dictionary).
+They decrypt everything the game exchanges: the API payloads, the save inventory, and the asset
+catalog and packs. They live inside your own copy of the game (the APK's native libraries and
+il2cpp metadata) and are read out of it; the extraction is not part of this repo. The keys are
+needed both to **download** the data (`fetch_resources.py` decrypts the catalog) and to **serve**
+it, so put `keys/keys.json` in place before anything else.
+
 ## Game data
 
 The game downloads its data from your server (`https://<your domain>/cdn`):

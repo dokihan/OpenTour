@@ -40,6 +40,8 @@ cp .env.example .env
 
 nginx config: see `deploy/`.
 
+Mii: open `https://booster.example.com/baas/mii` to import a Mii QR code.
+
 ## Client
 
 ```

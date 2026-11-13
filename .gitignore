@@ -1,0 +1,33 @@
+# Your extracted game keys
+/keys/keys.json
+/keys/*.zdict
+
+# Downloaded game resources (tools/fetch_resources.py)
+/resources/
+/cdn/
+
+# Server runtime state
+/server/data/
+/server/booster/game/masters_generated/
+data/
+
+# Built client artifacts
+/build/
+*.apk
+*.xapk
+*.ipa
+*.keystore
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Windows crash dumps
+*.stackdump

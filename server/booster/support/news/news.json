@@ -1,0 +1,49 @@
+{
+  "_doc": [
+    "Les actualités de OpenTour. Relu à chaque modification : pas besoin de redémarrer le serveur.",
+    "Une news apparaît en jeu dès que opened_at est passé, et disparaît après closed_at (facultatif).",
+    "Dates en UTC (suffixe Z). category : Important, Present, Event, Update, NewComer, Maintenance, Campaign, Others.",
+    "title_label : libellé du fichier de messages News du jeu (le titre affiché dans la liste en jeu).",
+    "  emergency_opeinfo_title = « Message de l'équipe de Mario Kart Tour ! » ; autres génériques :",
+    "  emergency_maintenance_title, emergency_update_title, emergency_knownissue_title, emergency_survey_title.",
+    "game_banner : bannière en jeu, sans suffixe de région (ajouté selon la langue du joueur) :",
+    "  common_banner_010 (Message de l'équipe, Mario), 012 (idem, sans personnage), 013 (idem, Peach),",
+    "  011 (Mario Kart Tour News, sans texte localisé), 020 (maintenance), 030/031 (mise à jour),",
+    "  040/041 (problèmes connus), 070 (sondage), 080 (Twitter), 110 (classement inter-coupes).",
+    "web_banner : image de la page web, par langue (fichiers de ce dossier).",
+    "is_force_display + priority > 0 (jusqu'à priority_expired_at) : la news remonte en tête et s'affiche au lancement.",
+    "body : paragraphes HTML, avec les classes du site officiel (span.bold, span.em.bold, h2, hr)."
+  ],
+  "news": [
+    {
+      "key": "ANNOUNCEMENT_opentour_welcome",
+      "opened_at": "2026-09-30T00:00:00Z",
+      "category": "Important",
+      "priority": 0,
+      "is_force_display": true,
+      "title_label": "emergency_opeinfo_title",
+      "game_banner": "common_banner_010",
+      "web_banner": {},
+      "title": {
+        "fr": "Bienvenue sur OpenTour !",
+        "en": "Welcome to OpenTour!"
+      },
+      "body": {
+        "fr": [
+          "Merci de jouer sur <span class=\"em bold\">OpenTour</span>, un serveur communautaire qui fait vivre Mario Kart Tour après la fin du service officiel, le 30/09/2026.",
+          "<span class=\"bold\">■ Votre compte</span><br>Les comptes sont locaux à ce serveur : à la connexion, choisissez votre compte ou créez-en un avec un pseudo. Choisissez le même compte sur un autre appareil pour retrouver votre progression.",
+          "<span class=\"bold\">■ Au programme</span><br>・La dernière saison officielle, ses coupes et leurs défis.<br>・Les courses contre les fantômes des autres joueurs de ce serveur.",
+          "Aucun achat avec de l'argent réel n'est possible sur OpenTour.",
+          "Bonne course !"
+        ],
+        "en": [
+          "Thank you for playing on <span class=\"em bold\">OpenTour</span>, a community-run server that keeps Mario Kart Tour going after the official service ended on 09/30/2026.",
+          "<span class=\"bold\">■ Your account</span><br>Accounts are local to this server: when you sign in, pick your account or create one with a nickname. Pick the same account on another device to pick up where you left off.",
+          "<span class=\"bold\">■ What you can play</span><br>・The last official season, its cups and their challenges.<br>・Races against the ghosts of other players on this server.",
+          "Nothing can be bought with real money on OpenTour.",
+          "Have a great race!"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: server:tools
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: compile
+        run: python -m compileall -q server tools
+      - name: import every module
+        run: |
+          python - <<'PY'
+          import importlib, pkgutil, sys, traceback
+          import booster
+          names = [m.name for m in pkgutil.walk_packages(booster.__path__, "booster.")]
+          names += ["fetch_resources", "opentour_keys",
+                    "libs.new_dv", "season_title", "sakasho.codec", "natcheck"]
+          names += ["tools." + m.name for m in pkgutil.iter_modules(["server/tools"])]
+          bad = 0
+          for name in names:
+              try:
+                  importlib.import_module(name)
+              except Exception:
+                  bad += 1
+                  print("FAIL", name)
+                  traceback.print_exc(limit=1)
+          print(len(names), "modules,", bad, "failed")
+          sys.exit(1 if bad else 0)
+          PY
+      - name: tools help
+        if: success() || failure()
+        run: |
+          for t in tools/fetch_resources.py tools/season_title.py server/tools/*.py; do
+            case "$t" in */__init__.py) continue;; esac
+            python "$t" --help > /dev/null || { echo "FAIL $t"; exit 1; }
+          done
+          python server/tools/setting_bin.py show
+      - name: boot
+        if: success() || failure()
+        run: |
+          python server/run.py --port 18084 > booster.log 2>&1 &
+          python server/tools/izumo_listen.py --help > /dev/null
+          for i in $(seq 1 30); do
+            code=$(curl -s -A unity-webview -o /dev/null -w '%{http_code}' http://127.0.0.1:18084/support/en-US/faq || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          cat booster.log
+          [ "$code" = "200" ]
+          curl -s -o /dev/null -w 'sakasho %{http_code}\n' -X POST http://127.0.0.1:18084/v3/booster/season_summary/list_summary_prepared_seasons
+          kill -TERM %1
+          wait %1 || true
+          grep -q "arrêt" booster.log

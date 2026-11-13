@@ -1,0 +1,4 @@
+cryptography==44.0.0
+msgpack==1.1.0
+lz4==4.3.3
+xxhash==3.5.0

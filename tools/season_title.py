@@ -68,6 +68,37 @@ def read_msbt(data):
         raise ValueError("invalid MSBT text index")
     return endian, sections, buckets, entries, texts
 
+def text_tokens(raw, endian):
+    tokens, pos, start = [], 0, 0
+    while pos + 2 <= len(raw):
+        code = struct.unpack_from(endian + "H", raw, pos)[0]
+        if code not in (0xe, 0xf):
+            pos += 2
+            continue
+        if pos > start:
+            tokens.append((False, raw[start:pos]))
+        size = 6 if code == 0xf else 8
+        if pos + size > len(raw):
+            raise ValueError("truncated MSBT command")
+        if code == 0xe:
+            size += struct.unpack_from(endian + "H", raw, pos + 6)[0]
+        if pos + size > len(raw):
+            raise ValueError("truncated MSBT command arguments")
+        tokens.append((True, raw[pos:pos + size]))
+        pos += size
+        start = pos
+    if pos != len(raw):
+        raise ValueError("truncated UTF-16 text")
+    if start < len(raw):
+        tokens.append((False, raw[start:]))
+    return tokens
+
+def msbt_texts(data):
+    endian, _, _, entries, texts = read_msbt(data)
+    encoding = "utf-16-le" if endian == "<" else "utf-16-be"
+    return {label: b"".join(p for command, p in text_tokens(texts[i], endian) if not command)
+            .decode(encoding).split("\0", 1)[0].strip() for label, i in entries.items()}
+
 def add_title(data, label=LABEL, title=TITLE):
     endian, sections, buckets, entries, texts = read_msbt(data)
     encoded = (title + "\0").encode("utf-16-le" if endian == "<" else "utf-16-be")

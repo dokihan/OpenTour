@@ -8,7 +8,7 @@ The game only accepts a trusted certificate (a self-signed one gives error 806-2
 sudo certbot certonly --nginx -d booster.example.com -d realtime.example.com
 ```
 
-The booster runs on `127.0.0.1:18084`, `/cdn` is served from `resources/cdn/`.
+The booster runs on `127.0.0.1:18084`, `/cdn` is served from `resources/cdn/`, missing files go to the booster, which redirects them to the official CDN.
 
 The realtime server is not HTTP, add this to the `stream {}` block:
 

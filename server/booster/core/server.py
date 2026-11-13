@@ -34,6 +34,10 @@ from booster.support import site as support_site
 from sks.gateway import Gateway, SksPlainError
 
 STATE_PATH = ROOT / "data" / "state.json"
+CDN_DIR = ROOT.parent / "resources" / "cdn"
+OFFICIAL_CDN = "https://download-cdn-mariokarttour.akamaized.net"
+OFFICIAL_DV = "e6cceee7c155e5e1a1b7fb6e247f6947e6c28238ae698b87e840c56c72ac4f6f"
+CDN_CHUNK = 1 << 20
 MAX_CLOCK_SKEW = 300
 PURGE_INTERVAL = 600
 
@@ -41,6 +45,8 @@ _LINK = re.compile(r"^/core/v1/users/(?P<user>[0-9a-f]{16})/link$")
 _GHOST = re.compile(r"^/ghosts/(?P<player>[^/]+)/(?P<course>[^/]+)/(?P<id>[0-9a-f]+)$")
 _MII_BLOB = re.compile(r"^/miis/(?P<player>[0-9a-f]+)/(?P<key>[^/]+)/(?P<which>thumbnail|data)$")
 _MII_IMAGE = re.compile(r"^/mii/(?P<account>[0-9a-fA-F-]{8,64})/[0-9a-f]+\.(?P<fmt>png|tga)$")
+_CDN = re.compile(r"^/cdn/assets/product/(?P<dv>[0-9a-f]{64})/(?P<extra>[0-9A-Za-z_]{1,64})/(?P<platform>android|ios)"
+                  r"/(?P<name>[0-9A-Za-z_-]{1,128}(?:\.[0-9A-Za-z]{1,16})?)$")
 
 STOPPING = threading.Event()
 
@@ -67,7 +73,33 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path in ("/health", "/healthz"):
             return self._json(200, {"ok": True, "players": len(self.routes.state.players)})
+        if self.path.startswith("/cdn/"):
+            return self._timed("cdn", 0, self._cdn)
         self._timed("web", 0, lambda: self._web("GET", b""))
+
+    def _cdn(self) -> None:
+        m = _CDN.match(urlparse(self.path).path)
+        if m is None:
+            return self._reply(404, {}, b"")
+        dv, extra, platform, name = m.group("dv", "extra", "platform", "name")
+        root = CDN_DIR.resolve()
+        path = (root / "assets" / "product" / dv / extra / platform / name).resolve()
+        if not path.is_relative_to(root):
+            return self._reply(404, {}, b"")
+        if path.is_file():
+            size = path.stat().st_size
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with path.open("rb") as fh:
+                while chunk := fh.read(CDN_CHUNK):
+                    self.wfile.write(chunk)
+            self._sent = size
+            return
+        if dv != OFFICIAL_DV and name in ("catalog", "version"):
+            return self._reply(404, {}, b"")
+        self._reply(302, {"Location": f"{OFFICIAL_CDN}/assets/product/{OFFICIAL_DV}/{extra}/{platform}/{name}"}, b"")
 
     def do_PUT(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)

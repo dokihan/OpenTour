@@ -8,9 +8,10 @@ The only game data in the repo are official server responses: `Setting.bin` (sea
 
 ## Requirements
 
-- Mario Kart Tour 4.0.0: the Android APK + `arm64-v8a` split (or the `.xapk`). An iOS IPA works for the client, but the keys come from the APK.
+- `keys/keys.json` with the game keys (see `keys/keys.sample.json` for the shape; the server needs them to decrypt the game data).
 - Python 3.11
 - A Linux server with nginx and a domain with a Let's Encrypt certificate
+- A client built for your server (host, TLS and end-of-service handled on the client side; not part of this repo)
 
 ```
 pip install -r requirements.txt
@@ -18,15 +19,30 @@ pip install -r requirements.txt
 
 ## Setup
 
+1. Get a Linux server with a domain and a Let's Encrypt certificate (nginx config in `deploy/`).
+2. Put your `keys/keys.json` in place.
+3. Run, in order:
+
 ```
-python tools/fetch_resources.py --platform both
+python tools/fetch_resources.py --minimal
 python tools/season_title.py
-cp .env.example .env
 ```
 
-- `fetch_resources.py` downloads the game data from the official CDN into `resources/cdn/`.
-- `season_title.py` renames the season to "OpenTour" (optional).
-- Edit `.env` with your domains.
+- `fetch_resources.py --minimal` downloads only the files the tools need into `resources/cdn/`, the server redirects the rest to the official CDN. Without `--minimal` it downloads everything.
+- `season_title.py` makes the endless season and names it "OpenTour". It is required: without it the game crashes while loading.
+
+4. `cp .env.example .env`, put your domains in it, and start the three services (see Running).
+5. Give your players a client built for your server. Each player enters a username on first launch.
+6. Optional: run `rotate.py` every day (see Rotations) and put the ghost pool from the releases in `server/data/ghost_pool/`.
+
+## Game data
+
+The game downloads its data from your server (`https://<your domain>/cdn`):
+
+- the files the tools regenerate (catalog, MasterData, texts) are built on your server from your own download and served from `resources/cdn/`;
+- every other file is redirected to the official CDN.
+
+If the official CDN goes down, run `fetch_resources.py` without `--minimal` while it still answers: the server then serves everything itself.
 
 ## Running
 

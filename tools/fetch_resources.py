@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import sys
 import urllib.error
@@ -13,6 +14,7 @@ if str(HERE) not in sys.path:
 
 from libs import paths
 from libs.nabe_catalog import EXTRA_VERSION_PATH_V400, NabeCatalog, NabePack, decode_server_catalog, xxh32
+from libs.setting_master import parse_setting
 import opentour_keys
 
 OFFICIAL_CDN = "https://download-cdn-mariokarttour.akamaized.net"
@@ -21,6 +23,8 @@ EXTRA_VERSION_PATH = EXTRA_VERSION_PATH_V400
 PLATFORMS = ("android", "ios")
 FILE_HASH_SEED = 0x1072D620
 MASK32 = 0xFFFFFFFF
+SHIPPED_SETTING = paths.REPO_ROOT / "server" / "booster" / "game" / "masters" / "Setting.bin"
+MINIMAL_PREFIXES = ("Message_",)
 
 CATALOG_SHA256 = {
     "android": "72950469e5b8b0bbb3b9b5e0542d121c576bb8133a75bddededa5631bfee8740",
@@ -118,18 +122,33 @@ def fetch_pack(platform: str, pdir: Path, pack: NabePack) -> bool:
     part.replace(dest)
     return True
 
-def fetch_platform(platform: str, out: Path) -> None:
+def master_file_id() -> str:
+    block = parse_setting(SHIPPED_SETTING.read_bytes())
+    if block.data_version != OFFICIAL_DV:
+        raise SystemExit(f"{SHIPPED_SETTING} is not the official data version")
+    stamp = datetime.datetime.fromtimestamp(block.starts_at, datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
+    return f"Master/MasterData_{stamp}.bytes"
+
+def minimal_packs(catalog: NabeCatalog) -> list[NabePack]:
+    master = master_file_id()
+    packs = [p for p in catalog.packs if p.id.startswith(MINIMAL_PREFIXES) or any(f.id == master for f in p.files)]
+    if not any(f.id == master for p in packs for f in p.files):
+        raise SystemExit(f"{master} not found in the catalogue")
+    return packs
+
+def fetch_platform(platform: str, out: Path, minimal: bool = False) -> None:
     pdir = platform_dir(out, platform)
     pdir.mkdir(parents=True, exist_ok=True)
     catalog = fetch_catalog(platform, pdir)
     fetch_version(platform, pdir, catalog)
+    packs = minimal_packs(catalog) if minimal else catalog.packs
     fetched = skipped = 0
-    for pack in catalog.packs:
+    for pack in packs:
         if fetch_pack(platform, pdir, pack):
             fetched += 1
         else:
             skipped += 1
-    print(f"{platform}: catalogue v{catalog.version}, {len(catalog.packs)} packs "
+    print(f"{platform}: catalogue v{catalog.version}, {len(packs)} of {len(catalog.packs)} packs "
           f"({fetched} downloaded, {skipped} already present) -> {pdir}")
 
 def main() -> int:
@@ -137,6 +156,8 @@ def main() -> int:
     ap.add_argument("--platform", choices=["android", "ios", "both"], default="both")
     ap.add_argument("--out", type=Path, default=paths.RESOURCES_DIR,
                     help=f"output root; files land at {CDN_ON_DISK_LAYOUT}")
+    ap.add_argument("--minimal", action="store_true",
+                    help="only the catalogue, the MasterData and the Message packs; the server redirects the rest")
     args = ap.parse_args()
 
     if opentour_keys.using_sample():
@@ -147,7 +168,7 @@ def main() -> int:
     out = args.out.resolve()
     platforms = PLATFORMS if args.platform == "both" else (args.platform,)
     for platform in platforms:
-        fetch_platform(platform, out)
+        fetch_platform(platform, out, args.minimal)
     return 0
 
 if __name__ == "__main__":

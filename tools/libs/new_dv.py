@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import math
 import os
 import re
 import shutil
+import struct
 import sys
 from types import SimpleNamespace
 
@@ -18,6 +20,7 @@ import msgpack
 
 import msgpack_preserve as MP
 from booster.game.masters import GENERATED_DIR, MASTERS_DIR
+from booster.game.season import extend
 from libs.nabe_catalog import (EXTRA_VERSION_PATH_V400, decode_catalog_raw, encode_catalog_raw, pack_id_hash,
                                unwrap_msgpack_lz4, wrap_msgpack_lz4, xxh32)
 from libs.setting_master import parse_setting
@@ -34,6 +37,7 @@ CAT_PACKS, CAT_MAX_FILE_SIZE, CAT_VERSION = 1, 7, 8
 PACK_ID, PACK_SIZE, PACK_HASH, PACK_FILES, PACK_BEGIN, PACK_END, PACK_SOURCE_HASH = 0, 1, 2, 4, 5, 6, 8
 FILE_BODY, FILE_ID, FILE_SIZE, FILE_HASH, FILE_SOURCE_HASH, FILE_CONTENTS = 1, 0, 1, 2, 3, 6
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+DEADLINE_PREFIXES = {"uint32": b"\xce", "timestamp": b"\xd6\xff"}
 
 def new_data_version(tag: str, source_dv: str) -> str:
     return hashlib.sha256(f"opentour-{tag}:{source_dv}".encode()).hexdigest()
@@ -58,6 +62,72 @@ def _walk(node):
     yield node
     for child in node.items or ():
         yield from _walk(child)
+
+def _leaves(tree):
+    if isinstance(tree, list):
+        for child in tree:
+            yield from _leaves(child)
+    elif isinstance(tree, dict):
+        for child in tree.values():
+            yield from _leaves(child)
+    else:
+        yield tree
+
+def _seconds(value):
+    if isinstance(value, msgpack.Timestamp):
+        return value.seconds
+    return value if type(value) is int else None
+
+def deadlines(tree):
+    found = {}
+    for leaf in _leaves(tree):
+        ts = _seconds(leaf)
+        if ts is not None and extend(ts) != ts:
+            found[ts] = found.get(ts, 0) + 1
+    return found
+
+def tree_diff(a, b, path=()):
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            raise ValueError(f"{path}: {len(a)} items became {len(b)}")
+        return [d for i, (x, y) in enumerate(zip(a, b)) for d in tree_diff(x, y, path + (i,))]
+    if isinstance(a, dict) and isinstance(b, dict):
+        if list(a) != list(b):
+            raise ValueError(f"{path}: keys changed")
+        return [d for k in a for d in tree_diff(a[k], b[k], path + (k,))]
+    if type(a) is not type(b):
+        raise ValueError(f"{path}: {type(a).__name__} became {type(b).__name__}")
+    if isinstance(a, float) and math.isnan(a) and math.isnan(b):
+        return []
+    return [] if a == b else [(path, a, b)]
+
+def endless(plain):
+    before = msgpack.unpackb(plain, raw=False, strict_map_key=False)
+    out, moved = plain, {kind: 0 for kind in DEADLINE_PREFIXES}
+    for value in sorted(deadlines(before)):
+        for kind, prefix in DEADLINE_PREFIXES.items():
+            old, new = prefix + struct.pack(">I", value), prefix + struct.pack(">I", extend(value))
+            moved[kind] += out.count(old)
+            out = out.replace(old, new)
+    after = msgpack.unpackb(out, raw=False, strict_map_key=False)
+    changes = tree_diff(before, after)
+    for path, a, b in changes:
+        sa, sb = _seconds(a), _seconds(b)
+        if sa is None or sb is None or sb != extend(sa) or sa == sb \
+                or getattr(a, "nanoseconds", 0) != getattr(b, "nanoseconds", 0):
+            raise ValueError(f"unexpected MasterData change at {path}: {a!r} -> {b!r}")
+    if len(changes) != sum(moved.values()):
+        raise ValueError(f"{sum(moved.values())} substitutions but {len(changes)} deadlines moved")
+    if deadlines(after):
+        raise ValueError(f"deadlines left in the season tail: {deadlines(after)}")
+    roundtrip(out, "endless MasterData")
+    return out, moved
+
+def _read_pack(src, pack):
+    path = src / pack_filename(pack)
+    if not path.is_file():
+        raise SystemExit(f"{path} ({pack[PACK_ID]}) missing; run tools/fetch_resources.py")
+    return path.read_bytes()
 
 def edit_master_plain(plain, block, edit, dv, revision):
     node = roundtrip(plain, "MasterData")
@@ -165,12 +235,13 @@ def load_source(cdn=CDN_DIR, setting=SHIPPED_SETTING):
     keys = opentour_keys.nabe()
     catalog = decode_catalog_raw((src / "catalog").read_bytes(), keys["offline_password"], keys["server_catalog_salt"])
     master, file_id = find_master(catalog, block)
-    cipher = (src / pack_filename(master)).read_bytes()
+    cipher = _read_pack(src, master)
     plain = decrypt_master(cipher, password_for(block, cipher, file_id), file_id)
     roundtrip(plain, "MasterData")
+    plain, _ = endless(plain)
     return SimpleNamespace(block=block, setting=blob, catalog=catalog, plain=plain, dir=src,
                            tree=msgpack.unpackb(plain, raw=False, strict_map_key=False),
-                           read=lambda pack: (src / pack_filename(pack)).read_bytes())
+                           read=lambda pack: _read_pack(src, pack))
 
 def build_platform(src, block, dv, revision, edit_master, edit_packs, edited):
     keys = opentour_keys.nabe()
@@ -181,17 +252,17 @@ def build_platform(src, block, dv, revision, edit_master, edit_packs, edited):
     def read(pack):
         name = pack_filename(pack)
         if name not in blobs:
-            blobs[name] = (src / name).read_bytes()
+            blobs[name] = _read_pack(src, pack)
         return blobs[name]
 
     replacements = edit_packs(catalog, read) if edit_packs else {}
     master, file_id = find_master(catalog, block)
     entry = master[PACK_FILES][0][FILE_BODY]
-    cipher = (src / pack_filename(master)).read_bytes()
+    cipher = _read_pack(src, master)
     if len(cipher) != entry[FILE_SIZE] or xxh32(cipher, FILE_HASH_SEED) != entry[FILE_HASH]:
         raise ValueError(f"{master[PACK_ID]}: pack does not match the catalog")
     password = password_for(block, cipher, file_id)
-    plain = decrypt_master(cipher, password, file_id)
+    plain, moved = endless(decrypt_master(cipher, password, file_id))
     key = hashlib.sha256(plain).digest()
     if key not in edited:
         edited[key] = edit_master_plain(plain, block, edit_master, dv, revision)
@@ -218,17 +289,26 @@ def build_platform(src, block, dv, revision, edit_master, edit_packs, edited):
     if decode_catalog_raw(data, secret, salt) != catalog:
         raise ValueError("catalog does not read back")
     files["catalog"], files["version"] = data, str(catalog[CAT_VERSION]).encode()
-    links = [n for n in map(pack_filename, catalog[CAT_PACKS]) if n not in files]
-    missing = [n for n in links if not (src / n).is_file()]
-    if missing:
-        raise SystemExit(f"{src}: {len(missing)} packs missing, run tools/fetch_resources.py")
-    return files, links, catalog[CAT_VERSION]
+    links = [n for n in map(pack_filename, catalog[CAT_PACKS]) if n not in files and (src / n).is_file()]
+    return files, links, catalog[CAT_VERSION], moved
 
 def _state(dest, files, links):
     if not dest.exists():
         return None
-    return all((dest / n).is_file() and (dest / n).read_bytes() == d for n, d in files.items()) \
-        and all((dest / n).is_file() for n in links)
+    return all((dest / n).is_file() and (dest / n).read_bytes() == d for n, d in files.items())
+
+def _link(src, dest, links):
+    linked = copied = 0
+    for name in links:
+        if (dest / name).is_file():
+            continue
+        try:
+            os.link(src / name, dest / name)
+            linked += 1
+        except OSError:
+            shutil.copy2(src / name, dest / name)
+            copied += 1
+    return linked, copied
 
 def _install(dest, src, files, links):
     part = dest.with_name(dest.name + ".part")
@@ -237,15 +317,9 @@ def _install(dest, src, files, links):
     part.mkdir(parents=True)
     for name, data in files.items():
         (part / name).write_bytes(data)
-    linked = 0
-    for name in links:
-        try:
-            os.link(src / name, part / name)
-            linked += 1
-        except OSError:
-            shutil.copy2(src / name, part / name)
+    counts = _link(src, part, links)
     part.rename(dest)
-    return linked
+    return counts
 
 def publish(tag, edit_master=None, edit_packs=None, *, cdn=CDN_DIR, setting=SHIPPED_SETTING,
             out_setting=GENERATED_SETTING, revision=None, log=print):
@@ -268,18 +342,21 @@ def publish(tag, edit_master=None, edit_packs=None, *, cdn=CDN_DIR, setting=SHIP
     plans, edited = [], {}
     for platform in platforms:
         src, dest = platform_dir(cdn, block.data_version, platform), platform_dir(cdn, dv, platform)
-        files, links, version = build_platform(src, block, dv, revision, edit_master, edit_packs, edited)
+        files, links, version, moved = build_platform(src, block, dv, revision, edit_master, edit_packs, edited)
+        log(f"{platform}: endless season, {sum(moved.values())} deadlines moved "
+            f"({', '.join(f'{n} {kind}' for kind, n in moved.items())})")
         current = _state(dest, files, links)
         if current is False:
             raise SystemExit(f"{dest} exists with other content; remove it first")
         plans.append((platform, src, dest, files, links, version, current))
     for platform, src, dest, files, links, version, current in plans:
         if current:
-            log(f"{platform}: up to date -> {dest}")
+            linked, copied = _link(src, dest, links)
+            log(f"{platform}: up to date, {linked} linked, {copied} copied -> {dest}")
             continue
-        linked = _install(dest, src, files, links)
+        linked, copied = _install(dest, src, files, links)
         log(f"{platform}: catalog v{version}, {len(files)} files written, {linked} linked, "
-            f"{len(links) - linked} copied -> {dest}")
+            f"{copied} copied -> {dest}")
     if out_setting.is_file():
         log(f"setting: up to date -> {out_setting}")
     else:

@@ -41,3 +41,4 @@ Thumbs.db
 
 # Windows crash dumps
 *.stackdump
+.env

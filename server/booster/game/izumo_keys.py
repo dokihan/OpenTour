@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 KEY_TTL = 48 * 3600
 PUBLIC_SLICE = slice(32, 44)
@@ -14,6 +18,9 @@ PUBLIC_SLICE = slice(32, 44)
 def _exclusive(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path.with_suffix(".lock"), "a") as handle:
+        if fcntl is None:
+            yield
+            return
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield

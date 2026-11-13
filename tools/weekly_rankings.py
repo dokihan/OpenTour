@@ -9,6 +9,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(REPO / "tools"), str(REPO / "server"), str(REPO / "server" / "tools")]
 
+from booster.game.season import FOREVER, OFFICIAL_END, extend
 from booster.game.weekly_rankings import CONFIG
 from libs import new_dv, rotation as R
 
@@ -18,8 +19,12 @@ COURSE_KEY, COURSE_INDEX, COURSE_NORMALIZE = 1, 5, 9
 T_ID, T_KEY, T_OPEN, T_CLOSE, T_PROMOTION, T_REWARD, T_CUP, T_MAX, T_GROUPING = 0, 1, 2, 3, 7, 8, 9, 10, 11
 WEEK = 7 * R.DAY
 
+def official_close(ts: int) -> int:
+    back = OFFICIAL_END - (FOREVER - ts)
+    return back if back != ts and extend(back) == ts else ts
+
 def first_opening(official: list[list]) -> int:
-    after = dt.datetime.fromtimestamp(max(t[T_CLOSE] for t in official) + 1, R.UTC)
+    after = dt.datetime.fromtimestamp(max(official_close(t[T_CLOSE]) for t in official) + 1, R.UTC)
     start = after.replace(hour=R.FLIP_HOUR, minute=0, second=0, microsecond=0)
     return int((start if start >= after else start + dt.timedelta(days=1)).timestamp())
 
@@ -46,6 +51,8 @@ def build(tree, now: int) -> tuple[list[dict], dict]:
     template = max(official, key=lambda t: t[T_OPEN])
     added = schedule(season, now + WEEK)
     rows = [list(t) for t in official]
+    for row in rows if added else ():
+        row[T_CLOSE] = official_close(row[T_CLOSE])
     for term in added:
         row = list(template)
         row[T_ID], row[T_KEY], row[T_OPEN], row[T_CLOSE], row[T_CUP] = (
@@ -71,6 +78,9 @@ def build(tree, now: int) -> tuple[list[dict], dict]:
 def apply(node, added: list[dict]) -> list[dict]:
     rows = R.season_node(node)[S_TERMS]
     template = max(rows.items, key=lambda t: t[T_OPEN].value)
+    for row in rows.items if added else ():
+        if official_close(row[T_CLOSE].value) != row[T_CLOSE].value:
+            row[T_CLOSE].set(official_close(row[T_CLOSE].value))
     new = []
     for term in added:
         row = template.clone()

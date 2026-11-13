@@ -40,7 +40,7 @@ PURGE_INTERVAL = 600
 _LINK = re.compile(r"^/core/v1/users/(?P<user>[0-9a-f]{16})/link$")
 _GHOST = re.compile(r"^/ghosts/(?P<player>[^/]+)/(?P<course>[^/]+)/(?P<id>[0-9a-f]+)$")
 _MII_BLOB = re.compile(r"^/miis/(?P<player>[0-9a-f]+)/(?P<key>[^/]+)/(?P<which>thumbnail|data)$")
-_MII_IMAGE = re.compile(r"^/mii/[0-9a-fA-F-]{8,64}/[0-9a-f]+\.(?:png|tga)$")
+_MII_IMAGE = re.compile(r"^/mii/(?P<account>[0-9a-fA-F-]{8,64})/[0-9a-f]+\.(?P<fmt>png|tga)$")
 
 STOPPING = threading.Event()
 
@@ -152,15 +152,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(*self.na.session_token(dict(parse_qsl(raw.decode("utf-8", "replace")))))
         if method == "POST" and path == "/1.0.0/gateway/sdk/token":
             return self._reply(*self.na.gateway_token(body or {}))
-        if method == "GET" and path == "/mii_studio":
-            return self._reply(*self.na.mii_studio(dict(parse_qsl(url.query))))
+        if method in ("GET", "POST") and path in ("/mii", "/mii_studio"):
+            form = dict(parse_qsl(raw.decode("utf-8", "replace")))
+            if path == "/mii":
+                return self._reply(*self.na.mii(method, form))
+            return self._reply(*self.na.mii_studio(method, {**dict(parse_qsl(url.query)), **form}))
         if method == "GET" and (m := _MII_BLOB.match(url.path)):
             return self._blob(miis.blob(self.routes.state.players.get(m.group("player")), m.group("key"),
                                         m.group("which")))
         if method == "GET" and (m := _GHOST.match(url.path)):
             return self._blob(self.routes.ghosts.data(m.group("player"), m.group("course"), m.group("id")))
-        if method == "GET" and _MII_IMAGE.match(path):
-            return self._reply(404, {}, b"")
+        if method == "GET" and (m := _MII_IMAGE.match(path)):
+            return self._reply(*self.na.mii_image(m.group("account"), m.group("fmt"), url.query))
 
         handled, payload = self.baas.handle(method, path, body, self.headers)
         if handled:
